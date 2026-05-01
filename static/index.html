@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AskDoc AI — Document Q&A Chatbot</title>
+    <meta name="description" content="Enterprise AI chatbot that answers questions about your documents using RAG and LLM">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo">
+                <div class="logo-icon">📄</div>
+                <h1>AskDoc <span>AI</span></h1>
+            </div>
+
+            <div class="upload-section">
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-icon">⬆️</div>
+                    <p class="upload-text">Drop PDF here</p>
+                    <p class="upload-hint">or click to browse</p>
+                    <input type="file" id="fileInput" accept=".pdf" hidden>
+                </div>
+            </div>
+
+            <div class="doc-info" id="docInfo" style="display:none;">
+                <div class="doc-status">
+                    <div class="status-dot"></div>
+                    <span>Document Ready</span>
+                </div>
+                <p class="doc-name" id="docName"></p>
+                <p class="doc-chunks" id="docChunks"></p>
+            </div>
+
+            <div class="sidebar-footer">
+                <p>Powered by <strong>Groq + RAG</strong></p>
+                <p class="tech-stack">FastAPI · TF-IDF · Llama 3.3</p>
+            </div>
+        </aside>
+
+        <!-- Main Chat -->
+        <main class="chat-main">
+            <div class="chat-header">
+                <h2>Document Q&A</h2>
+                <div class="header-badge" id="headerBadge">No document loaded</div>
+            </div>
+
+            <div class="chat-messages" id="chatMessages">
+                <div class="welcome-message">
+                    <div class="welcome-icon">🤖</div>
+                    <h3>Welcome to AskDoc AI</h3>
+                    <p>Upload a PDF document and ask me anything about it. I use Retrieval Augmented Generation (RAG) to find relevant sections and answer your questions accurately.</p>
+                    <div class="features">
+                        <div class="feature">
+                            <span class="feature-icon">📊</span>
+                            <span>Intelligent text chunking</span>
+                        </div>
+                        <div class="feature">
+                            <span class="feature-icon">🔍</span>
+                            <span>TF-IDF similarity search</span>
+                        </div>
+                        <div class="feature">
+                            <span class="feature-icon">🧠</span>
+                            <span>LLM-powered answers</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="chat-input-area">
+                <form id="chatForm" class="chat-form">
+                    <input type="text" id="chatInput" placeholder="Ask a question about your document..." disabled autocomplete="off">
+                    <button type="submit" id="sendBtn" disabled>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+                        </svg>
+                    </button>
+                </form>
+            </div>
+        </main>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>
