@@ -1,3 +1,12 @@
+---
+title: AskDoc AI
+emoji: 📄
+colorFrom: indigo
+colorTo: purple
+sdk: docker
+pinned: false
+---
+
 # AskDoc AI 📄🤖
 
 **Enterprise Document Q&A Chatbot powered by RAG + LLM**
