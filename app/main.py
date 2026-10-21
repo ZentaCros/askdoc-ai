@@ -1,6 +1,6 @@
 """
 AskDoc AI - FastAPI Backend
-Enterprise document Q&A chatbot powered by RAG + LLM
+Enterprise document Q&A chatbot powered by RAG + Multimodal LLM
 """
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.staticfiles import StaticFiles
@@ -11,21 +11,23 @@ import os
 from dotenv import load_dotenv
 
 from app.rag import DocumentStore, build_rag_prompt
+from app.config import (
+    GROQ_API_KEY,
+    GROQ_MODEL,
+    GROQ_VISION_MODEL,
+    MAX_IMAGE_EXTRACTION_PER_DOC,
+)
 
 load_dotenv()
 
 app = FastAPI(
     title="AskDoc AI",
     description="Enterprise document Q&A chatbot powered by RAG + LLM",
-    version="1.0.0"
+    version="1.1.0"
 )
 
 # Global document store
 doc_store = DocumentStore()
-
-# Groq API config
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 
 class ChatRequest(BaseModel):
@@ -45,25 +47,39 @@ async def health():
         "status": "healthy",
         "document_loaded": bool(doc_store.chunks),
         "chunks": len(doc_store.chunks),
-        "filename": doc_store.filename
+        "images_analyzed": doc_store.images_analyzed,
+        "filename": doc_store.filename,
+        "model": GROQ_MODEL,
+        "vision_model": GROQ_VISION_MODEL,
     }
 
 
 @app.post("/upload")
 async def upload_pdf(file: UploadFile = File(...)):
-    """Upload and process a PDF document for Q&A."""
+    """Upload and process a PDF document for Q&A, including visual/image elements."""
     if not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
 
     try:
         contents = await file.read()
-        num_chunks = doc_store.ingest_pdf(contents, file.filename)
+        num_chunks, num_images = await doc_store.ingest_pdf(
+            contents,
+            file.filename,
+            api_key=GROQ_API_KEY,
+            vision_model=GROQ_VISION_MODEL,
+            max_images=MAX_IMAGE_EXTRACTION_PER_DOC,
+        )
+
+        msg = f"Document processed into {num_chunks} searchable chunks"
+        if num_images > 0:
+            msg += f" (including {num_images} visual elements analyzed via Vision AI)"
 
         return {
             "status": "success",
             "filename": file.filename,
             "chunks": num_chunks,
-            "message": f"Document processed into {num_chunks} searchable chunks"
+            "images": num_images,
+            "message": msg
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -104,7 +120,14 @@ async def chat(request: ChatRequest):
                 json={
                     "model": GROQ_MODEL,
                     "messages": [
-                        {"role": "system", "content": "You are AskDoc AI, a precise document assistant. Answer questions based only on the provided document context."},
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are AskDoc AI, a precise document assistant. "
+                                "Answer questions based only on the provided document context, "
+                                "including any described figures, diagrams, or images."
+                            ),
+                        },
                         {"role": "user", "content": prompt}
                     ],
                     "temperature": 0.3,

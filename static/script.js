@@ -57,7 +57,11 @@ async function uploadFile(file) {
             documentLoaded = true;
             docInfo.style.display = 'block';
             docName.textContent = data.filename;
-            docChunks.textContent = `${data.chunks} searchable chunks`;
+            let chunkInfo = `${data.chunks} searchable chunks`;
+            if (data.images > 0) {
+                chunkInfo += ` (${data.images} images analyzed)`;
+            }
+            docChunks.textContent = chunkInfo;
             headerBadge.textContent = data.filename;
             headerBadge.classList.add('active');
             chatInput.disabled = false;
@@ -66,7 +70,12 @@ async function uploadFile(file) {
 
             // Clear welcome message and add system message
             chatMessages.innerHTML = '';
-            addMessage('bot', `📄 **${data.filename}** loaded successfully!\n\nI've processed it into ${data.chunks} chunks. Ask me anything about the document.`);
+            let welcomeMsg = `📄 **${data.filename}** loaded successfully!\n\nI've processed it into ${data.chunks} chunks`;
+            if (data.images > 0) {
+                welcomeMsg += ` (including ${data.images} figures/images analyzed via Vision AI)`;
+            }
+            welcomeMsg += `. Ask me anything about the document.`;
+            addMessage('bot', welcomeMsg);
         } else {
             addMessage('bot', `❌ Error: ${data.detail}`);
         }

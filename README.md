@@ -59,7 +59,7 @@ User uploads PDF
          │
          ▼
 ┌──────────────────┐
-│  LLM (Groq)     │  Llama 3.3 70B generates answer
+│  LLM (Groq)     │  GPT-OSS 120B generates answer
 │  Generation      │  grounded in document context
 └────────┬─────────┘
          │
@@ -73,7 +73,7 @@ User uploads PDF
 - **Intelligent Chunking** — Splits text at sentence boundaries with configurable overlap
 - **TF-IDF Retrieval** — No external embedding API needed; fast, local similarity search
 - **RAG Pipeline** — Retrieved chunks are injected as context into the LLM prompt
-- **Groq LLM** — Uses Llama 3.3 70B via Groq's API for fast, high-quality responses
+- **Groq LLM** — Uses GPT-OSS 120B via Groq's API for fast, high-quality responses
 - **Source Attribution** — Shows how many document chunks were used for each answer
 - **Modern Chat UI** — Dark-themed, responsive interface with real-time feedback
 
@@ -82,7 +82,7 @@ User uploads PDF
 | Component | Technology |
 |-----------|-----------|
 | Backend | FastAPI (Python) |
-| LLM | Groq API (Llama 3.3 70B) |
+| LLM | Groq API (GPT-OSS 120B) |
 | Retrieval | TF-IDF + Cosine Similarity |
 | PDF Parsing | PyPDF2 |
 | HTTP Client | httpx (async) |
@@ -135,7 +135,7 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 3. **Retrieval**: When the user asks a question, the query is also converted to a TF-IDF vector. Cosine similarity is computed between the query vector and all chunk vectors. The top 3 most relevant chunks are selected.
 
-4. **Generation**: The retrieved chunks are assembled into a structured prompt with instructions for the LLM. The prompt is sent to Groq's API (Llama 3.3 70B), which generates a response grounded in the document context.
+4. **Generation**: The retrieved chunks are assembled into a structured prompt with instructions for the LLM. The prompt is sent to Groq's API (GPT-OSS 120B), which generates a response grounded in the document context.
 
 5. **Response**: The answer is displayed in the chat interface along with the number of source chunks used.
 
