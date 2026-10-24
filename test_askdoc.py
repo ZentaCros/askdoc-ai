@@ -207,6 +207,30 @@ def test_8_conversational_followup_and_evaluative_queries():
     print("[PASS] Bot successfully evaluated the document on 'is it good?' without refusing!")
 
 
+def test_9_contact_details_and_short_queries():
+    print("\n--- Test 9: Short Query & Synonym Matching ('contact details') ---")
+    doc_text = (
+        "Muhammad Hamza Azeem\n"
+        "AI & Machine Learning Engineer\n"
+        "hamzabizli602@gmail.com | +92 3117434683 | Pakistan\n"
+        "Projects: AskDoc AI\n"
+        "Research details: Computer vision and deforestation detection."
+    )
+    pdf_bytes = create_text_pdf("Resume with Contacts", doc_text)
+    files = {"file": ("contact_resume.pdf", pdf_bytes, "application/pdf")}
+    upload_res = client.post("/upload", files=files)
+    assert upload_res.status_code == 200
+
+    chat_res = client.post("/chat", json={"message": "contact details", "history": []})
+    assert chat_res.status_code == 200
+    ans = chat_res.json()["response"]
+    print("Response for 'contact details':", ans[:180].encode("ascii", "replace").decode())
+    assert "hamzabizli602@gmail.com" in ans or "3117434683" in ans, (
+        f"Contact info missing from response: {ans}"
+    )
+    print("[PASS] Successfully retrieved email/phone for 'contact details' query!")
+
+
 if __name__ == "__main__":
     test_1_health_initial()
     test_2_chat_without_document()
@@ -216,7 +240,9 @@ if __name__ == "__main__":
     test_6_upload_pdf_with_image_and_query()
     test_7_static_files()
     test_8_conversational_followup_and_evaluative_queries()
+    test_9_contact_details_and_short_queries()
     print("\n==========================================")
     print("[SUCCESS] ALL SCENARIOS PASSED WITH 100% SUCCESS!")
     print("==========================================")
+
 

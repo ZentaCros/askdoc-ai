@@ -1,15 +1,26 @@
 """
 AskDoc AI - RAG Pipeline
 Handles PDF extraction, image analysis via Vision LLM, text chunking, and retrieval.
-Uses TF-IDF for embeddings with smart conversational fallback for broad/evaluative questions.
+Uses TF-IDF for embeddings with synonym expansion and full-context mode for compact documents.
 """
 import re
 import math
 from typing import List, Tuple, Optional
 
 
+# Synonym dictionary to bridge vocabulary gaps in lexical search
+QUERY_SYNONYMS = {
+    "contact": ["email", "phone", "reach", "call", "address", "linkedin", "github", "cell", "mobile"],
+    "details": ["info", "information"],
+    "experience": ["work", "career", "employment", "job", "projects", "internship"],
+    "education": ["degree", "university", "college", "school", "academic"],
+    "author": ["name", "creator", "writer", "who"],
+    "skills": ["technologies", "tools", "stack", "languages", "frameworks"],
+}
+
+
 class DocumentStore:
-    """In-memory document store with TF-IDF based retrieval, Multimodal Vision, and conversational fallback."""
+    """In-memory document store with TF-IDF based retrieval, Multimodal Vision, and intelligent context assembly."""
 
     def __init__(self):
         self.chunks: List[str] = []
@@ -139,8 +150,8 @@ class DocumentStore:
             pass
         return ""
 
-    def chunk_text(self, text: str, chunk_size: int = 500, overlap: int = 50) -> List[str]:
-        """Split text into overlapping chunks respecting sentence boundaries."""
+    def chunk_text(self, text: str, chunk_size: int = 1200, overlap: int = 150) -> List[str]:
+        """Split text into coherent overlapping chunks respecting sentence boundaries."""
         text = re.sub(r'\s+', ' ', text).strip()
 
         if len(text) <= chunk_size:
@@ -286,26 +297,41 @@ class DocumentStore:
     def search(
         self,
         query: str,
-        top_k: int = 3,
+        top_k: int = 5,
         history_messages: Optional[List[str]] = None
     ) -> Tuple[List[Tuple[str, float]], bool]:
         """
         Find the most relevant chunks for a query.
         Returns a tuple of (results, is_fallback).
-        Uses query expansion for short pronoun queries and smart document fallback.
+        - For compact documents (<= 8 chunks, e.g. resumes, short papers), passes all chunks so nothing is missed.
+        - For large documents, expands query with synonyms and applies TF-IDF search.
         """
         if not self.chunks:
             return [], False
 
-        expanded_query = query
-        pronouns = {"it", "this", "that", "these", "those", "he", "she", "they", "them", "his", "her"}
+        # 🌟 FULL-CONTEXT MODE FOR COMPACT DOCUMENTS:
+        # A resume or short document (<= 8 chunks of 1200 chars) is ~2,000 tokens.
+        # Since GPT-OSS 120B has a 128,000-token context window, providing the full document
+        # guarantees 100% recall for contacts, skills, projects, and details without any retrieval blind spots!
+        if len(self.chunks) <= 8:
+            return [(chunk, 1.0) for chunk in self.chunks], False
+
+        # Query expansion for pronouns and synonyms
+        expanded_terms = [query]
         query_tokens_set = set(self._tokenize(query))
 
-        # If query is short or uses pronouns, expand with previous user queries from history
+        # Pronoun expansion from previous conversation turns
+        pronouns = {"it", "this", "that", "these", "those", "he", "she", "they", "them", "his", "her"}
         if history_messages and (len(query_tokens_set) <= 4 or query_tokens_set.intersection(pronouns)):
             recent_context = " ".join(history_messages[-2:])
-            expanded_query = f"{recent_context} {query}"
+            expanded_terms.append(recent_context)
 
+        # Keyword synonym expansion
+        for word in query_tokens_set:
+            if word in QUERY_SYNONYMS:
+                expanded_terms.extend(QUERY_SYNONYMS[word])
+
+        expanded_query = " ".join(expanded_terms)
         query_tokens = self._tokenize(expanded_query)
         query_tf = self._compute_tf(query_tokens)
         query_tfidf = {token: tf_val * self.idf.get(token, 0) for token, tf_val in query_tf.items()}
@@ -322,10 +348,13 @@ class DocumentStore:
             if score > 0:
                 results.append((self.chunks[idx], score))
 
-        # SMART FALLBACK:
-        # If no specific keywords match (e.g., evaluative questions like "is it good?",
-        # "what do you think?", "summarize it", "review this"), fall back to the document's
-        # initial/overview chunks so the LLM has context to answer thoughtfully.
+        # If user asks about contact, author, or summary, ensure Chunk 0 is included
+        is_contact_or_author_query = bool(query_tokens_set.intersection({"contact", "email", "phone", "author", "who", "creator"}))
+        if is_contact_or_author_query and self.chunks:
+            if not any(c == self.chunks[0] for c, _ in results):
+                results.insert(0, (self.chunks[0], 0.5))
+
+        # Smart fallback for evaluative / general queries
         if not results and self.chunks:
             fallback_chunks = [(self.chunks[i], 0.1) for i in range(min(top_k, len(self.chunks)))]
             return fallback_chunks, True
