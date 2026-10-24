@@ -11,6 +11,7 @@ const sendBtn = document.getElementById('sendBtn');
 const headerBadge = document.getElementById('headerBadge');
 
 let documentLoaded = false;
+let chatHistory = [];
 
 // Upload handlers
 uploadArea.addEventListener('click', () => fileInput.click());
@@ -55,6 +56,7 @@ async function uploadFile(file) {
 
         if (response.ok) {
             documentLoaded = true;
+            chatHistory = []; // Reset conversation history on new document
             docInfo.style.display = 'block';
             docName.textContent = data.filename;
             let chunkInfo = `${data.chunks} searchable chunks`;
@@ -105,14 +107,22 @@ chatForm.addEventListener('submit', async (e) => {
         const response = await fetch('/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message })
+            body: JSON.stringify({
+                message,
+                history: chatHistory.slice(-6)
+            })
         });
 
         const data = await response.json();
         typingEl.remove();
 
         if (response.ok) {
-            addMessage('bot', data.response, `${data.sources} sources used`);
+            // Keep conversation memory
+            chatHistory.push({ role: 'user', content: message });
+            chatHistory.push({ role: 'assistant', content: data.response });
+
+            const meta = data.is_fallback ? 'Document overview evaluated' : `${data.sources} sources used`;
+            addMessage('bot', data.response, meta);
         } else {
             addMessage('bot', `❌ ${data.detail}`);
         }
@@ -132,7 +142,7 @@ function addMessage(role, content, meta = '') {
 
     const avatar = role === 'bot' ? '🤖' : '👤';
 
-    // Simple markdown: bold, newlines, bullets
+    // Simple markdown formatting
     let html = content
         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
         .replace(/\n- /g, '\n• ')

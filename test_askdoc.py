@@ -174,6 +174,39 @@ def test_7_static_files():
     print("[PASS] All frontend static assets served with HTTP 200.")
 
 
+def test_8_conversational_followup_and_evaluative_queries():
+    print("\n--- Test 8: Multi-turn Conversation & Evaluative Follow-up ('is it good?') ---")
+    doc_text = (
+        "Muhammad Hamza Azeem\n"
+        "Data Scientist & AI/ML Engineer with expertise in Computer Vision, NLP, and LLM applications.\n"
+        "Built production RAG system AskDoc AI with 95% accuracy and optimized model latency by 40%."
+    )
+    pdf_bytes = create_text_pdf("Hamza Resume", doc_text)
+    files = {"file": ("hamza_resume.pdf", pdf_bytes, "application/pdf")}
+    upload_res = client.post("/upload", files=files)
+    assert upload_res.status_code == 200
+
+    # Turn 1: Broad question
+    res1 = client.post("/chat", json={"message": "what is in there?", "history": []})
+    assert res1.status_code == 200
+    ans1 = res1.json()["response"]
+    print("Turn 1 (what is in there?):", ans1[:120].encode("ascii", "replace").decode())
+
+    # Turn 2: Follow-up question with pronoun and subjective query ("is it good?")
+    history = [
+        {"role": "user", "content": "what is in there?"},
+        {"role": "assistant", "content": ans1}
+    ]
+    res2 = client.post("/chat", json={"message": "is it good?", "history": history})
+    assert res2.status_code == 200
+    ans2 = res2.json()["response"]
+    print("Turn 2 (is it good?):", ans2[:160].encode("ascii", "replace").decode())
+    assert "couldn't find" not in ans2.lower() and "cannot find" not in ans2.lower(), (
+        f"Bot refused to answer 'is it good?': {ans2}"
+    )
+    print("[PASS] Bot successfully evaluated the document on 'is it good?' without refusing!")
+
+
 if __name__ == "__main__":
     test_1_health_initial()
     test_2_chat_without_document()
@@ -182,6 +215,8 @@ if __name__ == "__main__":
     test_5_upload_text_pdf_and_query()
     test_6_upload_pdf_with_image_and_query()
     test_7_static_files()
+    test_8_conversational_followup_and_evaluative_queries()
     print("\n==========================================")
     print("[SUCCESS] ALL SCENARIOS PASSED WITH 100% SUCCESS!")
     print("==========================================")
+

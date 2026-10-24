@@ -6,6 +6,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from typing import List, Optional
 import httpx
 import os
 from dotenv import load_dotenv
@@ -23,21 +24,28 @@ load_dotenv()
 app = FastAPI(
     title="AskDoc AI",
     description="Enterprise document Q&A chatbot powered by RAG + LLM",
-    version="1.1.0"
+    version="1.2.0"
 )
 
 # Global document store
 doc_store = DocumentStore()
 
 
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
 class ChatRequest(BaseModel):
     message: str
+    history: Optional[List[ChatMessage]] = []
 
 
 class ChatResponse(BaseModel):
     response: str
     sources: int
     document: str
+    is_fallback: bool = False
 
 
 @app.get("/health")
@@ -89,7 +97,7 @@ async def upload_pdf(file: UploadFile = File(...)):
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
-    """Ask a question about the uploaded document."""
+    """Ask a question about the uploaded document with multi-turn conversation memory."""
     if not doc_store.chunks:
         raise HTTPException(
             status_code=400,
@@ -102,15 +110,45 @@ async def chat(request: ChatRequest):
             detail="GROQ_API_KEY not configured"
         )
 
-    # Retrieve relevant chunks
-    relevant_chunks = doc_store.search(request.message, top_k=3)
+    # Extract user history to expand follow-up questions/pronouns
+    user_queries = [
+        h.content for h in (request.history or []) if h.role == "user"
+    ]
 
-    # Build RAG prompt
-    prompt = build_rag_prompt(request.message, relevant_chunks)
+    # Retrieve relevant chunks with smart conversational fallback
+    relevant_chunks, is_fallback = doc_store.search(
+        request.message,
+        top_k=3,
+        history_messages=user_queries
+    )
+
+    # Build prompt
+    prompt = build_rag_prompt(request.message, relevant_chunks, is_fallback=is_fallback)
+
+    # Build conversation payload for the LLM
+    llm_messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are AskDoc AI, an intelligent, discerning, and friendly document assistant. "
+                "You maintain conversation context, remember previous turns, and evaluate documents thoughtfully "
+                "based on the provided context."
+            ),
+        }
+    ]
+
+    # Include recent turns of conversation history (up to last 6 messages)
+    if request.history:
+        for item in request.history[-6:]:
+            role = "assistant" if item.role in ["assistant", "bot"] else "user"
+            llm_messages.append({"role": role, "content": item.content})
+
+    # Final user prompt with retrieved document context
+    llm_messages.append({"role": "user", "content": prompt})
 
     # Call Groq API
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=35.0) as client:
             response = await client.post(
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={
@@ -119,18 +157,8 @@ async def chat(request: ChatRequest):
                 },
                 json={
                     "model": GROQ_MODEL,
-                    "messages": [
-                        {
-                            "role": "system",
-                            "content": (
-                                "You are AskDoc AI, a precise document assistant. "
-                                "Answer questions based only on the provided document context, "
-                                "including any described figures, diagrams, or images."
-                            ),
-                        },
-                        {"role": "user", "content": prompt}
-                    ],
-                    "temperature": 0.3,
+                    "messages": llm_messages,
+                    "temperature": 0.4,
                     "max_tokens": 1024,
                 }
             )
@@ -147,7 +175,8 @@ async def chat(request: ChatRequest):
         return ChatResponse(
             response=answer,
             sources=len(relevant_chunks),
-            document=doc_store.filename
+            document=doc_store.filename,
+            is_fallback=is_fallback
         )
 
     except httpx.TimeoutException:

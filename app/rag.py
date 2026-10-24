@@ -1,15 +1,15 @@
 """
 AskDoc AI - RAG Pipeline
 Handles PDF extraction, image analysis via Vision LLM, text chunking, and retrieval.
-Uses TF-IDF for embeddings (no external vector DB needed) and cosine similarity for retrieval.
+Uses TF-IDF for embeddings with smart conversational fallback for broad/evaluative questions.
 """
 import re
 import math
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 
 class DocumentStore:
-    """In-memory document store with TF-IDF based retrieval and Multimodal Vision support."""
+    """In-memory document store with TF-IDF based retrieval, Multimodal Vision, and conversational fallback."""
 
     def __init__(self):
         self.chunks: List[str] = []
@@ -283,12 +283,30 @@ class DocumentStore:
 
         return len(self.chunks), self.images_analyzed
 
-    def search(self, query: str, top_k: int = 3) -> List[Tuple[str, float]]:
-        """Find the most relevant chunks for a query."""
+    def search(
+        self,
+        query: str,
+        top_k: int = 3,
+        history_messages: Optional[List[str]] = None
+    ) -> Tuple[List[Tuple[str, float]], bool]:
+        """
+        Find the most relevant chunks for a query.
+        Returns a tuple of (results, is_fallback).
+        Uses query expansion for short pronoun queries and smart document fallback.
+        """
         if not self.chunks:
-            return []
+            return [], False
 
-        query_tokens = self._tokenize(query)
+        expanded_query = query
+        pronouns = {"it", "this", "that", "these", "those", "he", "she", "they", "them", "his", "her"}
+        query_tokens_set = set(self._tokenize(query))
+
+        # If query is short or uses pronouns, expand with previous user queries from history
+        if history_messages and (len(query_tokens_set) <= 4 or query_tokens_set.intersection(pronouns)):
+            recent_context = " ".join(history_messages[-2:])
+            expanded_query = f"{recent_context} {query}"
+
+        query_tokens = self._tokenize(expanded_query)
         query_tf = self._compute_tf(query_tokens)
         query_tfidf = {token: tf_val * self.idf.get(token, 0) for token, tf_val in query_tf.items()}
 
@@ -304,21 +322,36 @@ class DocumentStore:
             if score > 0:
                 results.append((self.chunks[idx], score))
 
-        return results
+        # SMART FALLBACK:
+        # If no specific keywords match (e.g., evaluative questions like "is it good?",
+        # "what do you think?", "summarize it", "review this"), fall back to the document's
+        # initial/overview chunks so the LLM has context to answer thoughtfully.
+        if not results and self.chunks:
+            fallback_chunks = [(self.chunks[i], 0.1) for i in range(min(top_k, len(self.chunks)))]
+            return fallback_chunks, True
+
+        return results, False
 
 
-def build_rag_prompt(query: str, context_chunks: List[Tuple[str, float]]) -> str:
+def build_rag_prompt(
+    query: str,
+    context_chunks: List[Tuple[str, float]],
+    is_fallback: bool = False
+) -> str:
     """Build a prompt that includes retrieved context for the LLM."""
     if not context_chunks:
-        return f"""The user asked a question but no relevant context was found in the uploaded document.
+        return f"""The user asked a question but no document context is currently loaded.
 
 User Question: {query}
 
-Please respond by saying you couldn't find relevant information in the document for this question, and suggest the user ask something related to the document's content."""
+Please ask the user to upload a PDF document first."""
 
     context = "\n\n---\n\n".join([chunk for chunk, _ in context_chunks])
 
-    return f"""You are AskDoc AI, a helpful document assistant. Answer the user's question based ONLY on the provided document context. If the answer is not found in the context, say so honestly.
+    if is_fallback:
+        return f"""You are AskDoc AI, a discerning and helpful document assistant.
+The user is asking an evaluative, opinion, summary, or follow-up question (such as "is it good?", "what do you think?", "give feedback", "summarize").
+Carefully review the provided document context and give an insightful, objective, and constructive response.
 
 DOCUMENT CONTEXT:
 {context}
@@ -326,8 +359,21 @@ DOCUMENT CONTEXT:
 USER QUESTION: {query}
 
 INSTRUCTIONS:
-- Answer based ONLY on the provided context
-- Be concise and accurate
+- Directly evaluate or answer the user's question using the document context above
+- Highlight key strengths, qualifications, findings, or areas of improvement
+- Be constructive, professional, and friendly
+- Use clear bullet points and formatting"""
+
+    return f"""You are AskDoc AI, a helpful document assistant. Answer the user's question based on the provided document context. If the answer is not found in the context, say so honestly.
+
+DOCUMENT CONTEXT:
+{context}
+
+USER QUESTION: {query}
+
+INSTRUCTIONS:
+- Answer based on the provided context
+- Be concise, accurate, and professional
 - If the context doesn't contain the answer, say "I couldn't find this information in the uploaded document"
 - Use bullet points for lists
 - Quote relevant text or reference figures/images when helpful"""
